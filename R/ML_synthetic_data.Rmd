@@ -1,0 +1,151 @@
+---
+title: "ML_synthetic_data"
+author: "Penca Matei"
+date: "12/23/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Packages & Data
+
+```{r warning = FALSE, message = FALSE}
+library(readr)
+library(performance)
+library(gmodels)
+library(caret)
+library(tidyverse)
+library(tree)
+library(randomForest)
+```
+
+### Loading and setting up the data
+
+```{r warning = FALSE, message = FALSE}
+
+# Load data into the environment and creates partition for 50-50 validation
+
+
+synthetic_sdv <- read.csv("synthetic_data/synthethicHalf.csv", header=T,
+                          stringsAsFactors=T)
+
+# Random sample of 50% of row numbers created
+indexes = sample(1:nrow(synthetic_sdv), size=0.5*nrow(synthetic_sdv)) 
+# Training data contains created indices
+Train50Syn <- synthetic_sdv[indexes,] 
+# Test data contains the rest
+Test50Syn <- synthetic_sdv[-indexes,]
+
+attach(Train50Syn)
+```
+
+### Logistic regression model with 50:50 Cross-validation
+
+```{r warning = FALSE, message = FALSE}
+
+
+LogisticModel50finalSyn <- glm(as.factor(Creditability) ~ Account.Balance +
+                                 Payment.Status.of.Previous.Credit + Purpose +
+                                 Length.of.current.employment + 
+                                 Sex...Marital.Status, family=binomial,
+                               data = Train50Syn)
+
+fit50Syn <- fitted.values(LogisticModel50finalSyn)
+
+Threshold50Syn <- rep(0,500)
+
+for (i in 1:500)
+  if(fit50Syn[i] >= 0.5) Threshold50Syn[i] <- 1
+
+for (i in 1:500) {
+  if (Threshold50Syn[i] == '1') {
+    Threshold50Syn[i] <- 'Creditable'
+  }
+  
+  if (Threshold50Syn[i] == '0') {
+    Threshold50Syn[i] <- 'Non-Creditable'
+  } 
+}
+
+for (i in 1:500) {
+  if (Test50Syn$Creditability[i] == '0') {
+    Test50Syn$Creditability[i] <- 'Non-Creditable'
+  } 
+  
+  if (Test50Syn$Creditability[i] == '1') {
+    Test50Syn$Creditability[i] <- 'Creditable'
+  } 
+}
+```
+
+### Confusion matrix for GLM
+
+```{r warning = FALSE, message = FALSE}
+
+confusionSyn <- confusionMatrix(data = factor(Threshold50Syn), reference = factor(Test50Syn$Creditability))
+confusionSyn
+```
+
+### Supervised Tree based method
+
+```{r warning = FALSE, message = FALSE}
+
+# Reload the clean test data set into memory
+Test50Syn <- synthetic_sdv[-indexes,]
+
+Train50_tree <- tree(as.factor(Creditability) ~ Account.Balance+
+                       Duration.of.Credit..month.+
+                       Payment.Status.of.Previous.Credit+Purpose+Credit.Amount
+                     +Value.Savings.Stocks+Length.of.current.employment+
+                       Instalment.per.cent+Sex...Marital.Status+Guarantors+
+                       Duration.in.Current.address+
+                       Most.valuable.available.asset+Age..years.+
+                       Concurrent.Credits+Type.of.apartment+
+                       No.of.Credits.at.this.Bank+Occupation+No.of.dependents+
+                       Telephone, data=Train50Syn, method="class")
+
+summary(Train50_tree)
+
+plot(Train50_tree)
+text(Train50_tree, pretty=0,cex=0.6)
+
+Test50_pred <- predict(Train50_tree, Test50Syn, type="class")
+table(Test50_pred, Test50Syn$Creditability)
+
+Train50_prune8 <- prune.misclass(Train50_tree, best=8)
+Test50_prune8_pred <- predict(Train50_prune8, Test50Syn, type="class")
+
+
+```
+
+### Confusion matrix for supervised trees (with pruning)
+
+```{r warning = FALSE, message = FALSE}
+confusionTree <- confusionMatrix(data = factor(Test50_prune8_pred),
+                                 reference = factor(Test50Syn$Creditability))
+confusionTree
+```
+
+### Unsupervised Random Forest based method
+
+```{r warning = FALSE, message = FALSE}
+rf50 <- randomForest(as.factor(Creditability) ~., data = Train50Syn, ntree=200, importance=T, proximity=T)
+
+plot(rf50, main="")
+rf50
+
+Test50_rf_pred <- predict(rf50, Test50Syn, type="class")
+
+```
+
+
+### Confusion matrix for unsupervised random forest
+
+```{r warning = FALSE, message = FALSE}
+
+confusionForest <- confusionMatrix(data = factor(Test50_rf_pred),
+                                   reference = factor(Test50Syn$Creditability))
+confusionForest
+```
